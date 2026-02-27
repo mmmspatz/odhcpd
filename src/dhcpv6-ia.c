@@ -1114,6 +1114,15 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				}
 			}
 
+			/* Override request hint with config values if present. */
+			if (lease_cfg) {
+				if (lease_cfg->pd_len)
+					reqlen = lease_cfg->pd_len;
+
+				if (lease_cfg->pd_hint)
+					reqhint = lease_cfg->pd_hint;
+			}
+
 			if (reqlen < 33)
 				reqlen = 33;
 			if (reqlen > 64)

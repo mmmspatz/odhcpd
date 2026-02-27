@@ -209,6 +209,8 @@ const struct blobmsg_policy lease_cfg_attrs[LEASE_CFG_ATTR_MAX] = {
 	[LEASE_CFG_ATTR_HOSTID] = { .name = "hostid", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_CFG_ATTR_LEASETIME] = { .name = "leasetime", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_CFG_ATTR_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
+	[LEASE_CFG_ATTR_PD_HINT] = { .name = "pd_hint", .type = BLOBMSG_TYPE_STRING },
+	[LEASE_CFG_ATTR_PD_LEN] = { .name = "pd_len", .type = BLOBMSG_TYPE_INT32 },
 };
 
 const struct uci_blob_param_list lease_cfg_attr_list = {
@@ -724,6 +726,21 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 			goto err;
 
 		lease_cfg->leasetime = time;
+	}
+
+	if ((c = tb[LEASE_CFG_ATTR_PD_HINT])) {
+		errno = 0;
+		lease_cfg->pd_hint = strtoul(blobmsg_get_string(c), NULL, 16);
+		if (errno)
+			goto err;
+	}
+
+	if ((c = tb[LEASE_CFG_ATTR_PD_LEN])) {
+		uint32_t pd_len = blobmsg_get_u32(c);
+		if (pd_len < 1 || pd_len > 64)
+			goto err;
+
+		lease_cfg->pd_len = pd_len;
 	}
 
 	INIT_LIST_HEAD(&lease_cfg->dhcpv6_leases);

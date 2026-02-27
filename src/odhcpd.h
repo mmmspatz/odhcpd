@@ -317,6 +317,8 @@ struct lease_cfg {
 	struct dhcpv4_lease *dhcpv4_lease;
 	struct in_addr ipv4;
 	uint64_t hostid;
+	uint32_t pd_hint;
+	uint8_t pd_len;
 	size_t mac_count;
 	struct ether_addr *macs;
 	size_t duid_count;
@@ -512,6 +514,8 @@ enum {
 	LEASE_CFG_ATTR_HOSTID,
 	LEASE_CFG_ATTR_LEASETIME,
 	LEASE_CFG_ATTR_NAME,
+	LEASE_CFG_ATTR_PD_HINT,
+	LEASE_CFG_ATTR_PD_LEN,
 	LEASE_CFG_ATTR_MAX
 };
 extern const struct blobmsg_policy lease_cfg_attrs[LEASE_CFG_ATTR_MAX];

@@ -137,6 +137,8 @@ and may also receive information from ubus
 | hostid		|string	|(none)	| IPv6 tokenised IID or `ignore` to ignore any DHCPv6 request from this host |
 | name			|string	|(none) | Hostname |
 | leasetime		|string	|(none) | DHCPv4/v6leasetime |
+| pd_hint		|string |(none) | IPVv6 Subnet ID (second 32 bit word of the prefix) to delegate to this host with IA_PD |
+| pd_len		|integer|(none) | IPv6 prefix length to delegatge to this host with IA_PD. Range [33,64] |
 
 
 ### Sections of type boot6
