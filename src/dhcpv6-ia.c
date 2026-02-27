@@ -341,29 +341,37 @@ static void set_border_assignment_size(struct interface *iface, struct dhcpv6_le
 
 static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 {
-	struct dhcpv6_lease *c;
-
 	if (iface->addr6_len < 1)
 		return false;
 
+	struct dhcpv6_lease *c, *border = list_last_entry(&iface->ia_assignments, struct dhcpv6_lease, head);
+	uint32_t asize = (1U << (64 - assign->length)) - 1;
+
 	/* Try honoring the hint first */
-	uint32_t current = 1, asize = (1 << (64 - assign->length)) - 1;
-	if (assign->assigned_subnet_id) {
-		list_for_each_entry(c, &iface->ia_assignments, head) {
-			if (c->flags & OAF_DHCPV6_NA)
-				continue;
+	uint32_t current = 1;
+	uint32_t hint = assign->assigned_subnet_id &
+		(border->assigned_subnet_id - 1) & // clear bits above the delegatable space
+		~asize; // clear bits below the delegation size
+	list_for_each_entry(c, &iface->ia_assignments, head) {
+		if (hint < current)
+			break;
 
-			if (assign->assigned_subnet_id >= current && assign->assigned_subnet_id + asize < c->assigned_subnet_id) {
-				list_add_tail(&assign->head, &c->head);
+		if (c->flags & OAF_DHCPV6_NA)
+			continue;
 
-				if (assign->bound)
-					apply_lease(assign, true);
+		if (hint + asize < c->assigned_subnet_id) {
+			assign->assigned_subnet_id = hint;
+			list_add_tail(&assign->head, &c->head);
+			debug("assign_pd chose subnet_id %08x on %s (hint honored)",
+				assign->assigned_subnet_id, iface->name);
 
-				return true;
-			}
+			if (assign->bound)
+				apply_lease(assign, true);
 
-			current = (c->assigned_subnet_id + (1 << (64 - c->length)));
+			return true;
 		}
+
+		current = (c->assigned_subnet_id + (1U << (64 - c->length)));
 	}
 
 	/* Fallback to a variable assignment */
@@ -377,6 +385,8 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 		if (current + asize < c->assigned_subnet_id) {
 			assign->assigned_subnet_id = current;
 			list_add_tail(&assign->head, &c->head);
+			debug("assign_pd chose subnet_id %08x on %s",
+			      assign->assigned_subnet_id, iface->name);
 
 			if (assign->bound)
 				apply_lease(assign, true);
@@ -384,7 +394,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 			return true;
 		}
 
-		current = (c->assigned_subnet_id + (1 << (64 - c->length)));
+		current = (c->assigned_subnet_id + (1U << (64 - c->length)));
 	}
 
 	return false;
@@ -1034,11 +1044,11 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				if (p->prefix_len) {
 					reqlen = p->prefix_len;
 					reqhint = ntohl(p->addr.s6_addr32[1]);
-					if (reqlen > 32 && reqlen <= 64)
-						reqhint &= (1U << (64 - reqlen)) - 1;
 				}
 			}
 
+			if (reqlen < 33)
+				reqlen = 33;
 			if (reqlen > 64)
 				reqlen = 64;
 

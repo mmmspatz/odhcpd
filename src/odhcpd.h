@@ -375,6 +375,10 @@ struct interface {
 
 	// DHCPv6 runtime data
 	struct odhcpd_event dhcpv6_event;
+	/* Two independently sorted subsequences of struct dhcpv6_lease:
+	 * - IA_NA entries sorted by assigned_host_id
+	 * - IA_PD entries sorted by assigned_subnet_id
+	 */
 	struct list_head ia_assignments;
 
 	// NDP runtime data
