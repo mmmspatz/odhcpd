@@ -1085,6 +1085,21 @@ err:
 	return -1;
 }
 
+static int avl_lease6_cmp(const void *k1, const void *k2, _o_unused void *ptr)
+{
+	const struct dhcpv6_ia *a = k1, *b = k2;
+	int na_a = !!(a->flags & DHCPV6_IA_NA);
+	int na_b = !!(b->flags & DHCPV6_IA_NA);
+
+	/* NA entries sort before PD entries */
+	if (na_a != na_b)
+		return na_b - na_a;
+	else if (na_a)
+		return (a->assigned_host_id > b->assigned_host_id) - (a->assigned_host_id < b->assigned_host_id);
+	else
+		return (a->assigned_subnet_id > b->assigned_subnet_id) - (a->assigned_subnet_id < b->assigned_subnet_id);
+}
+
 static int avl_ipv4_cmp(const void *k1, const void *k2, _o_unused void *ptr)
 {
 	return memcmp(k1, k2, sizeof(struct in_addr));
@@ -1123,7 +1138,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ndp_event.uloop.fd = -1;
 		iface->ndp_ping_fd = -1;
 		iface->dhcpv4_event.uloop.fd = -1;
-		INIT_LIST_HEAD(&iface->ia_assignments);
+		avl_init(&iface->ia_assignments, avl_lease6_cmp, false, iface);
 		avl_init(&iface->dhcpv4_leases, avl_ipv4_cmp, false, iface);
 		INIT_LIST_HEAD(&iface->dhcpv4_fr_ips);
 

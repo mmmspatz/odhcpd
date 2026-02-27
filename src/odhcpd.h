@@ -188,10 +188,18 @@ enum odhcpd_mode {
 	MODE_HYBRID
 };
 
+enum dhcpv6_ia_flags {
+	DHCPV6_IA_NA		= (1 << 0),
+	DHCPV6_IA_PD		= (1 << 1),
+};
 
-enum odhcpd_assignment_flags {
-	OAF_DHCPV6_NA		= (1 << 0),
-	OAF_DHCPV6_PD		= (1 << 1),
+struct dhcpv6_ia {
+	union {
+		uint64_t assigned_host_id;
+		uint32_t assigned_subnet_id;
+	};
+	enum dhcpv6_ia_flags flags;
+	uint8_t length; // 128 for NA, ≤64 for PD
 };
 
 #define DHCPV6_OPT_HDR_SIZE 4
@@ -276,7 +284,7 @@ struct dhcpv4_lease {
 };
 
 struct dhcpv6_lease {
-	struct list_head head;
+	struct avl_node iface_avl;
 	struct list_head lease_cfg_list;
 
 	struct interface *iface;
@@ -292,13 +300,7 @@ struct dhcpv6_lease {
 	int fr_cnt;
 	uint8_t key[16];
 
-	union {
-		uint64_t assigned_host_id;
-		uint32_t assigned_subnet_id;
-	};
-	uint8_t length; // length == 128 -> IA_NA, length <= 64 -> IA_PD
-
-	unsigned int flags;
+	struct dhcpv6_ia ia;
 	bool bound;				// the lease has been accepted by the client
 	uint32_t leasetime;
 	char *hostname;
@@ -375,7 +377,7 @@ struct interface {
 
 	// DHCPv6 runtime data
 	struct odhcpd_event dhcpv6_event;
-	struct list_head ia_assignments;
+	struct avl_tree ia_assignments;
 
 	// NDP runtime data
 	struct odhcpd_event ndp_event;

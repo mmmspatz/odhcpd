@@ -674,7 +674,7 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 	for (size_t i = 0; i < iface->addr6_len; ++i) {
 		struct in6_addr addr;
 		uint32_t preferred_lt, valid_lt;
-		int prefix = lease->length;
+		int prefix = lease->ia.length;
 
 		if (!valid_addr(&addrs[i], now))
 			continue;
@@ -688,17 +688,17 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 			continue;
 		}
 
-		if (lease->flags & OAF_DHCPV6_NA) {
+		if (lease->ia.flags & DHCPV6_IA_NA) {
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 				continue;
 
-			addr = in6_from_prefix_and_iid(&addrs[i], lease->assigned_host_id);
+			addr = in6_from_prefix_and_iid(&addrs[i], lease->ia.assigned_host_id);
 		} else {
 			if (!valid_prefix_length(lease, addrs[i].prefix_len))
 				continue;
 
 			addr = addrs[i].addr.in6;
-			addr.s6_addr32[1] |= htonl(lease->assigned_subnet_id);
+			addr.s6_addr32[1] |= htonl(lease->ia.assigned_subnet_id);
 			addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 		}
 

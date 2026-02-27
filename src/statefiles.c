@@ -373,7 +373,7 @@ static bool statefiles_write_host6(struct write_ctxt *ctxt, struct dhcpv6_lease 
 {
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	if (!lease->hostname || !lease->hostname_valid || !(lease->flags & OAF_DHCPV6_NA))
+	if (!lease->hostname || !lease->hostname_valid || !(lease->ia.flags & DHCPV6_IA_NA))
 		return false;
 
 	if (ctxt->fp) {
@@ -428,7 +428,7 @@ static void statefiles_write_hosts(time_t now)
 		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 			struct dhcpv6_lease *lease;
 
-			list_for_each_entry(lease, &ctxt.iface->ia_assignments, head) {
+			avl_for_each_element(&ctxt.iface->ia_assignments, lease, iface_avl) {
 				if (!lease->bound)
 					continue;
 
@@ -465,7 +465,7 @@ static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	if (lease->hostname && lease->hostname_valid && lease->flags & OAF_DHCPV6_NA) {
+	if (lease->hostname && lease->hostname_valid && (lease->ia.flags & DHCPV6_IA_NA)) {
 		md5_hash(addr, sizeof(*addr), &ctxt->md5);
 		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
@@ -493,10 +493,10 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 			(lease->valid_until > ctxt->now ?
 			 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
 			 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
-			(lease->flags & OAF_DHCPV6_NA ?
-			 lease->assigned_host_id :
-			 (uint64_t)lease->assigned_subnet_id),
-			lease->length);
+			(lease->ia.flags & DHCPV6_IA_NA ?
+			 lease->ia.assigned_host_id :
+			 (uint64_t)lease->ia.assigned_subnet_id),
+			lease->ia.length);
 	}
 
 	odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, statefiles_write_state6_addr, ctxt);
@@ -551,7 +551,7 @@ static bool statefiles_write_state(time_t now)
 		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 			struct dhcpv6_lease *lease;
 
-			list_for_each_entry(lease, &ctxt.iface->ia_assignments, head) {
+			avl_for_each_element(&ctxt.iface->ia_assignments, lease, iface_avl) {
 				if (!lease->bound)
 					continue;
 
