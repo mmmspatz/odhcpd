@@ -63,8 +63,18 @@ void dhcpv6_free_lease(struct dhcpv6_lease *a)
 	if (!a)
 		return;
 
-	if(avl_find(&a->iface->ia_assignments, &a->ia) == &a->iface_avl)
+	if (avl_find(&a->iface->ia_assignments, &a->ia) == &a->iface_avl) {
+		debug("free_lease: removing %s %08x/%" PRIx64 " from tree on %s",
+		      (a->ia.flags & DHCPV6_IA_NA) ? "NA" : "PD",
+		      a->ia.assigned_subnet_id, a->ia.assigned_host_id,
+		      a->iface->name);
 		avl_delete(&a->iface->ia_assignments, &a->iface_avl);
+	} else {
+		debug("free_lease: %s %08x/%" PRIx64 " not in tree (iface=%p)",
+		      (a->ia.flags & DHCPV6_IA_NA) ? "NA" : "PD",
+		      a->ia.assigned_subnet_id, a->ia.assigned_host_id,
+		      a->iface);
+	}
 	list_del(&a->lease_cfg_list);
 
 	if (a->bound && (a->ia.flags & DHCPV6_IA_PD))
@@ -111,8 +121,12 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 
 		set_border_assignment_size(iface, border);
 		avl_insert(&iface->ia_assignments, &border->iface_avl);
+		debug("ia_setup: %s enabled, border subnet_id %08x",
+		      iface->name, border->ia.assigned_subnet_id);
 	} else {
 		struct dhcpv6_lease *c, *n;
+		debug("ia_setup: %s disabled, freeing %d leases",
+		      iface->name, iface->ia_assignments.count);
 		avl_for_each_element_safe(&iface->ia_assignments, c, iface_avl, n)
 			dhcpv6_free_lease(c);
 	}
@@ -355,6 +369,10 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 	const struct dhcpv6_lease * const first_delegation = avl_find_ge_element(
 		&iface->ia_assignments, &first_delegation_key, first_delegation, iface_avl);
 
+	debug("assign_pd: /%u hint %08x border %08x asize %08x on %s",
+	      assign->ia.length, assign->ia.assigned_subnet_id,
+	      border->ia.assigned_subnet_id, asize, iface->name);
+
 	/* Try honoring the hint first */
 	candidate = assign->ia.assigned_subnet_id &
 		(border->ia.assigned_subnet_id - 1) & // clear bits above the delegatable space
@@ -365,6 +383,9 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 			? left->ia.assigned_subnet_id + (1U << (64 - left->ia.length))
 			: 1;
 	right = left ? avl_next_element(left, iface_avl) : first_delegation;
+
+	debug("assign_pd: hint candidate %08x left_end %08x right %08x",
+	      candidate, left_end, right->ia.assigned_subnet_id);
 
 	if (candidate >= left_end &&
 	    candidate + asize < right->ia.assigned_subnet_id) {
@@ -403,6 +424,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 		left_end = right->ia.assigned_subnet_id + (1U << (64 - right->ia.length));
 	}
 
+	debug("assign_pd: no space for /%u on %s", assign->ia.length, iface->name);
 	return false;
 }
 
@@ -438,7 +460,11 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 
 	/* Preconfigured assignment by static lease */
 	if (a->ia.assigned_host_id) {
-		return !avl_insert(&iface->ia_assignments, &a->iface_avl);
+		bool ok = !avl_insert(&iface->ia_assignments, &a->iface_avl);
+		debug("assign_na: static host_id %" PRIx64 " on %s: %s",
+		      a->ia.assigned_host_id, iface->name,
+		      ok ? "ok" : "duplicate");
+		return ok;
 	}
 
 	/* Pick a starting point, using the last bytes of the DUID as seed... */
@@ -460,10 +486,14 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 			continue;
 
 		a->ia.assigned_host_id = try;
-		if (!avl_insert(&iface->ia_assignments, &a->iface_avl))
+		if (!avl_insert(&iface->ia_assignments, &a->iface_avl)) {
+			debug("assign_na: chose host_id %" PRIx64 " on %s",
+			      a->ia.assigned_host_id, iface->name);
 			return true;
+		}
 	}
 
+	debug("assign_na: exhausted 100 tries on %s", iface->name);
 	return false;
 }
 
@@ -483,9 +513,13 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 					info->addrs_old.len, false);
 	}
 
+	debug("addrlist_change: old border %08x on %s",
+	      border->ia.assigned_subnet_id, iface->name);
 	avl_delete(&iface->ia_assignments, &border->iface_avl);
 	set_border_assignment_size(iface, border);
 	avl_insert(&iface->ia_assignments, &border->iface_avl);
+	debug("addrlist_change: new border %08x on %s",
+	      border->ia.assigned_subnet_id, iface->name);
 
 	avl_for_each_element_safe(&iface->ia_assignments, c, iface_avl, d) {
 		if (c->duid_len == 0 ||
@@ -494,6 +528,8 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 			continue;
 
 		if (c->ia.assigned_subnet_id >= border->ia.assigned_subnet_id) {
+			debug("addrlist_change: subnet_id %08x >= border, queuing for reassign on %s",
+			      c->ia.assigned_subnet_id, iface->name);
 			avl_delete(&iface->ia_assignments, &c->iface_avl);
 			list_add(&c->iface_avl.list, &reassign);
 		} else if (c->bound)
@@ -514,8 +550,11 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 
 	list_for_each_entry_safe(c, d, &reassign, iface_avl.list) {
 		list_del_init(&c->iface_avl.list);
-		if (!assign_pd(iface, c))
+		if (!assign_pd(iface, c)) {
+			debug("addrlist_change: reassign failed for subnet_id %08x on %s, freeing",
+			      c->ia.assigned_subnet_id, iface->name);
 			dhcpv6_free_lease(c);
+		}
 	}
 
 	statefiles_write();
@@ -563,8 +602,13 @@ static void valid_until_cb(struct uloop_timeout *event)
 			continue;
 
 		avl_for_each_element_safe(&iface->ia_assignments, a, iface_avl, n) {
-			if (a->duid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now)
+			if (a->duid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now) {
+				debug("valid_until: expiring %s %08x/%" PRIx64 " on %s",
+				      (a->ia.flags & DHCPV6_IA_NA) ? "NA" : "PD",
+				      a->ia.assigned_subnet_id, a->ia.assigned_host_id,
+				      iface->name);
 				dhcpv6_free_lease(a);
+			}
 		}
 	}
 	uloop_timeout_set(event, 1000);
@@ -1152,6 +1196,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 					 * Reconf doesn't specify the IAID, so we have to assume the client
 					 * already knows or doesn't care about the old assignment.
 					 */
+					debug("handle_IAs: static lease reconfig, freeing old assignment on %s",
+					      iface->name);
 					stop_reconf(c);
 					dhcpv6_free_lease(c);
 					goto proceed;
@@ -1161,6 +1207,9 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 
 			/* We have a match */
 			a = c;
+			debug("handle_IAs: found existing %s assignment on %s",
+			      (a->ia.flags & DHCPV6_IA_NA) ? "NA" : "PD",
+			      iface->name);
 
 			/* Reset state */
 			if (a->bound)
@@ -1171,6 +1220,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		}
 
 		if (lease_cfg && a && a->lease_cfg != lease_cfg) {
+			debug("handle_IAs: lease_cfg mismatch, freeing assignment on %s",
+			      iface->name);
 			dhcpv6_free_lease(a);
 			a = NULL;
 		}
@@ -1216,6 +1267,11 @@ proceed:
 						} else if ((req.flags & DHCPV6_IA_NA) && iface->dhcpv6_na) {
 							assigned = assign_na(iface, a);
 						}
+
+						debug("handle_IAs: new %s binding on %s: %s",
+						      (req.flags & DHCPV6_IA_NA) ? "NA" : "PD",
+						      iface->name,
+						      assigned ? "assigned" : "failed");
 
 						if (lease_cfg && assigned) {
 							if (lease_cfg->hostname) {
@@ -1313,6 +1369,9 @@ proceed:
 				}
 			} else {
 				/* Clean up failed assignment */
+				debug("handle_IAs: freeing unassigned %s lease on %s",
+				      (a->ia.flags & DHCPV6_IA_NA) ? "NA" : "PD",
+				      iface->name);
 				dhcpv6_free_lease(a);
 				a = NULL;
 			}
