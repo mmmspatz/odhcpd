@@ -745,6 +745,12 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 
 	INIT_LIST_HEAD(&lease_cfg->dhcpv6_leases);
 	vlist_add(&lease_cfgs, &lease_cfg->node, lease_cfg);
+	debug("Loaded lease config: hostname=%s, duid_count=%zu, mac_count=%zu, "
+	      "hostid=%llx, pd_hint=%08x, pd_len=%u",
+	      lease_cfg->hostname ?: "(none)",
+	      lease_cfg->duid_count, lease_cfg->mac_count,
+	      (unsigned long long)lease_cfg->hostid,
+	      lease_cfg->pd_hint, lease_cfg->pd_len);
 	return 0;
 
 err:
@@ -1930,20 +1936,29 @@ config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid, const uint16_t len, 
 	struct lease_cfg *lease_cfg, *candidate = NULL;
 
 	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
+		debug("  checking lease_cfg %s: duid_count=%zu",
+		      lease_cfg->hostname ?: "(none)", lease_cfg->duid_count);
 		for (size_t i = 0; i < lease_cfg->duid_count; i++) {
+			debug("    duid[%zu]: cfg_len=%u vs req_len=%u", i, lease_cfg->duids[i].len, len);
 			if (lease_cfg->duids[i].len != len)
 				continue;
 
-			if (memcmp(lease_cfg->duids[i].id, duid, len))
+			if (memcmp(lease_cfg->duids[i].id, duid, len)) {
+				debug("    duid[%zu]: memcmp mismatch", i);
 				continue;
+			}
 
 			if (!lease_cfg->duids[i].iaid_set) {
+				debug("    duid[%zu]: match (no iaid filter), candidate", i);
 				candidate = lease_cfg;
 				continue;
 			}
 
-			if (lease_cfg->duids[i].iaid == iaid)
+			if (lease_cfg->duids[i].iaid == iaid) {
+				debug("    duid[%zu]: exact match (iaid=%u)", i, iaid);
 				return lease_cfg;
+			}
+			debug("    duid[%zu]: iaid mismatch cfg=%u vs req=%u", i, lease_cfg->duids[i].iaid, iaid);
 		}
 	}
 
@@ -1954,11 +1969,19 @@ struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac)
 {
 	struct lease_cfg *lease_cfg;
 
+	debug("find_lease_cfg_by_mac: looking for %02x:%02x:%02x:%02x:%02x:%02x",
+	      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
+		debug("  checking lease_cfg %s: mac_count=%zu",
+		      lease_cfg->hostname ?: "(none)", lease_cfg->mac_count);
 		for (size_t i = 0; i < lease_cfg->mac_count; i++) {
-			if (!memcmp(lease_cfg->macs[i].ether_addr_octet, mac,
-				    sizeof(lease_cfg->macs[i].ether_addr_octet)))
+			const uint8_t *cm = lease_cfg->macs[i].ether_addr_octet;
+			debug("    mac[%zu]: %02x:%02x:%02x:%02x:%02x:%02x",
+			      i, cm[0], cm[1], cm[2], cm[3], cm[4], cm[5]);
+			if (!memcmp(cm, mac, sizeof(lease_cfg->macs[i].ether_addr_octet))) {
+				debug("    mac[%zu]: match!", i);
 				return lease_cfg;
+			}
 		}
 	}
 
