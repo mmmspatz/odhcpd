@@ -356,6 +356,8 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 	uint32_t hint = assign->assigned_subnet_id &
 		(border->assigned_subnet_id - 1) & // clear bits above the delegatable space
 		~asize; // clear bits below the delegation size
+	debug("assign_pd hint masked from %08x to %08x on %s", assign->assigned_subnet_id, hint, iface->name);
+	debug("border->assigned_subnet_id = %08x, asize = %08x, current = %08x, allow_exclude = %d", border->assigned_subnet_id, asize, current, allow_exclude);
 	list_for_each_entry(c, &iface->ia_assignments, head) {
 		if (hint < current)
 			break;
@@ -1111,16 +1113,22 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				if (p->prefix_len) {
 					reqlen = p->prefix_len;
 					reqhint = ntohl(p->addr.s6_addr32[1]);
+					debug("Parsed request hint for IA_PD: prefix length %u, subnet ID hint %08x", reqlen, reqhint);
 				}
 			}
 
 			/* Override request hint with config values if present. */
 			if (lease_cfg) {
-				if (lease_cfg->pd_len)
+				debug("Found matching lease config for DUID %s, IAID %u: %s", duidbuf, ntohl(ia->iaid), lease_cfg->hostname ?: "(no hostname)");
+				if (lease_cfg->pd_len) {
+					debug("Overriding requested PD length with config value: %u", lease_cfg->pd_len);
 					reqlen = lease_cfg->pd_len;
+				}
 
-				if (lease_cfg->pd_hint)
+				if (lease_cfg->pd_hint) {
+					debug("Overriding requested PD hint with config value: %08x", lease_cfg->pd_hint);
 					reqhint = lease_cfg->pd_hint;
+				}
 			}
 
 			if (reqlen < 33)
